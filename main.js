@@ -127,6 +127,7 @@ let currentTorrent = null
 let currentTorrentFolder = null // absolute path on disk for the loaded torrent (disk mode only)
 let streamServer = null
 let streamPort = 0
+let serverReady = null // resolves once streamServer is listening (set on first creation)
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -151,6 +152,7 @@ function cleanup(removeData) {
   if (streamServer) {
     try { streamServer.close() } catch (e) {}
     streamServer = null
+    serverReady = null
   }
   if (currentTorrent) {
     try { client.remove(currentTorrent, { destroyStore: false }) } catch (e) {}
@@ -366,6 +368,10 @@ async function downloadSubs(subs) {
 }
 
 // ---- Reusable stream + VLC launch (used by IPC and magnet auto-play) ----
+// Store current stream file reference for server reuse
+let currentStreamFile = null
+let currentStreamFileSize = 0
+
 async function streamFile(fileIndex) {
   if (!currentTorrent) throw new Error('No torrent loaded.')
   if (!Number.isInteger(fileIndex) || fileIndex < 0 || fileIndex >= currentTorrent.files.length) {
@@ -383,23 +389,34 @@ async function streamFile(fileIndex) {
   file.select()
   subs.forEach((s) => s.select())
 
-  // (Re)start the HTTP stream server with range support.
-  if (streamServer) {
-    try { streamServer.close() } catch (e) {}
-  }
+  // Update current stream file reference for server reuse
+  currentStreamFile = file
+  currentStreamFileSize = file.length
 
-  const fileSize = file.length
+  // Pre-fetch first 2MB of the file to start buffering immediately
+  const prefetchEnd = Math.min(2 * 1024 * 1024 - 1, file.length - 1)
+  const prefetchStream = file.createReadStream({ start: 0, end: prefetchEnd })
+  prefetchStream.resume()
 
-  return new Promise((resolve, reject) => {
+  // Create server on first call, reuse thereafter
+  if (!streamServer) {
     streamServer = http.createServer((req, res) => {
       if (req.url !== '/' && req.url !== '/stream') {
         res.writeHead(404)
         res.end('Not found')
         return
       }
+      // Use the current stream file reference
+      const currentFile = currentStreamFile
+      const currentSize = currentStreamFileSize
+      if (!currentFile) {
+        res.writeHead(503)
+        res.end('No stream available')
+        return
+      }
       const range = req.headers.range
       let start = 0
-      let end = fileSize - 1
+      let end = currentSize - 1
       let statusCode = 200
 
       if (range) {
@@ -407,8 +424,8 @@ async function streamFile(fileIndex) {
         if (match) {
           if (match[1]) start = parseInt(match[1], 10)
           if (match[2]) end = parseInt(match[2], 10)
-          if (isNaN(start) || isNaN(end) || start > end || start >= fileSize) {
-            res.writeHead(416, { 'Content-Range': `bytes */${fileSize}` })
+          if (isNaN(start) || isNaN(end) || start > end || start >= currentSize) {
+            res.writeHead(416, { 'Content-Range': `bytes */${currentSize}` })
             res.end()
             return
           }
@@ -422,11 +439,11 @@ async function streamFile(fileIndex) {
         'Content-Length': end - start + 1
       }
       if (statusCode === 206) {
-        headers['Content-Range'] = `bytes ${start}-${end}/${fileSize}`
+        headers['Content-Range'] = `bytes ${start}-${end}/${currentSize}`
       }
       res.writeHead(statusCode, headers)
 
-      const stream = file.createReadStream({ start, end })
+      const stream = currentFile.createReadStream({ start, end })
       let clientGone = false
       res.on('close', () => { clientGone = true })
       stream.on('error', (err) => {
@@ -438,18 +455,31 @@ async function streamFile(fileIndex) {
       stream.pipe(res)
     })
 
-    streamServer.on('error', (err) => reject(err))
-
-    streamServer.listen(0, '127.0.0.1', async () => {
-      streamPort = streamServer.address().port
-      const url = `http://127.0.0.1:${streamPort}/stream`
-      let subtitlePaths = []
-      if (subs.length) {
-        try { subtitlePaths = await downloadSubs(subs) } catch (e) {}
-      }
-      resolve({ url, subtitles: subtitlePaths })
+    streamServer.on('error', (err) => {
+      console.error('Stream server error:', err)
     })
-  })
+
+    serverReady = new Promise((resolve, reject) => {
+      streamServer.once('error', reject)
+      streamServer.listen(0, '127.0.0.1', () => {
+        streamPort = streamServer.address().port
+        console.log('Stream server listening on port', streamPort)
+        resolve()
+      })
+    })
+  }
+
+  // Guarantee streamPort is set (server is listening) before handing the URL to VLC.
+  await serverReady
+
+  const url = `http://127.0.0.1:${streamPort}/stream`
+
+  // Start subtitle download in background (don't wait for it)
+  let subtitlePaths = []
+  if (subs.length) {
+    try { subtitlePaths = await downloadSubs(subs) } catch (e) {}
+  }
+  return { url, subtitles: subtitlePaths }
 }
 
 async function launchVlc(url, subtitlePaths) {
@@ -457,7 +487,7 @@ async function launchVlc(url, subtitlePaths) {
   if (!vlcPath) {
     throw new Error('VLC not found. Install VLC or set its path in settings.')
   }
-  const args = [url]
+  const args = ['--network-caching=300', url]
   if (Array.isArray(subtitlePaths)) {
     for (const sp of subtitlePaths) args.push('--sub-file', sp)
   }
