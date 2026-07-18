@@ -1,0 +1,44 @@
+{
+  "name": "torrentstream-local",
+  "version": "0.1.0",
+  "description": "Minimal Electron app: paste a magnet or drop a .torrent, browse the file tree, click a video, stream it locally to VLC.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder"
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "dependencies": {
+    "webtorrent": "^2.5.1"
+  },
+  "build": {
+    "appId": "com.torrentstream.local",
+    "productName": "TorrentStream-Local",
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer.html",
+      "renderer.js",
+      "renderer.css"
+    ],
+    "win": {
+      "target": "nsis"
+    }
+  },
+  "config": {
+    "allow-scripts": "electron,utp-native,node-datachannel,bufferutil,utf-8-validate,ip-set"
+  },
+  "allowScripts": {
+    "bufferutil@4.1.0": true,
+    "electron@33.4.11": true,
+    "ip-set@3.0.0": true,
+    "node-datachannel@0.32.3": true,
+    "utf-8-validate@6.0.6": true,
+    "utp-native@2.5.3": true
+  }
+}

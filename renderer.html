@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline';">
+  <title>TorrentStream-Local</title>
+  <link rel="stylesheet" href="renderer.css">
+</head>
+<body>
+  <header>
+    <h1>TorrentStream-Local</h1>
+    <button id="open-settings" class="link-btn" title="Settings">⚙ Settings</button>
+  </header>
+
+  <div id="settings-modal" class="modal" hidden>
+    <div class="modal-box">
+      <h2>Settings</h2>
+
+      <div class="setting-row">
+        <label>Save mode</label>
+        <div class="seg">
+          <button id="mode-memory" class="seg-btn">Memory (stream only)</button>
+          <button id="mode-disk" class="seg-btn">Disk (keep files)</button>
+        </div>
+      </div>
+      <p class="hint" id="mode-hint"></p>
+
+      <div class="setting-row">
+        <label>Download folder</label>
+        <div class="path-row">
+          <span id="download-path" class="path-text"></span>
+          <button id="pick-download">Browse…</button>
+        </div>
+      </div>
+      <p class="hint">Used only in Disk mode. Each torrent gets its own subfolder.</p>
+
+      <div class="setting-row">
+        <label>VLC location</label>
+        <div class="path-row">
+          <span id="vlc-path" class="path-text"></span>
+          <button id="pick-vlc">Browse…</button>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button id="close-settings">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <section id="search-bar">
+    <input id="search" type="text" placeholder="Search…" />
+    <div class="seg" id="source-toggle">
+      <button id="src-yts" class="seg-btn active" title="YTS (movies)">🎬 YTS</button>
+      <button id="src-tpb" class="seg-btn" title="The Pirate Bay (TV + more)">📺 TPB</button>
+    </div>
+    <button id="search-btn">Search</button>
+    <span id="search-status" class="search-status"></span>
+  </section>
+
+  <section id="search-results" class="search-results" hidden></section>
+
+  <section id="input-bar">
+    <input id="magnet" type="text" placeholder="Paste a magnet link here…" />
+    <button id="load-magnet">Load</button>
+    <span class="sep">or</span>
+    <button id="pick-file">Choose .torrent</button>
+  </section>
+
+  <section id="drop-zone">
+    <p>Drag &amp; drop a <strong>.torrent</strong> file anywhere, or paste a magnet above.</p>
+  </section>
+
+  <div id="status" class="status"></div>
+
+  <section id="file-section" hidden>
+    <h2 id="torrent-name"></h2>
+    <ul id="file-tree" class="file-tree"></ul>
+  </section>
+
+  <div id="now-playing" class="now-playing" hidden></div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
