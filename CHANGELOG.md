@@ -2,6 +2,20 @@
 
 All notable changes to this project are logged here, newest first.
 
+## 2026-07-18 (Streaming & TPB)
+- Added: TPB magnets now append public HTTP trackers (opentrackr, openbittorrent, coppersurfer) in
+  addition to the WebSocket trackers, so more TPB torrents find peers.
+- Added: TPB results whose `info_hash` is not a valid 40-char hex string are skipped, avoiding dead magnets.
+- Changed: metadata-fetch timeout reduced from 60s to 10s for faster failure feedback; status now reads
+  "Connecting to peers (10s timeout)…" instead of "Fetching metadata…".
+- Optimized: VLC starts faster — subtitles now download in the background (no longer block VLC launch),
+  the selected video pre-fetches its first ~2 MB before VLC connects, and VLC is launched with
+  `--network-caching=300` for a quicker initial buffer.
+- Optimized: the HTTP stream server is created once and reused across file switches (no per-play port rebind).
+- Fixed: stream-server race where the first play of a session handed VLC an invalid
+  `http://127.0.0.1:0/stream` URL (port was read before the async `listen` resolved); `streamFile` now
+  awaits server readiness before building the URL.
+
 ## 2026-07-18 (UI)
 - Fixed: YTS movie posters/covers were blocked by the Content-Security-Policy (`default-src 'self'`);
   added `img-src 'self' https:` to renderer.html so external cover images now load.
