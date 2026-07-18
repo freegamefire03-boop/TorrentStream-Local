@@ -18,6 +18,9 @@ MVP — core flow implemented and boots cleanly.
   - **Single click** a result → loads it and shows the file tree (pick a video manually)
   - **Double click** a result → auto-picks the best video (largest non-junk file, ignores samples/RARBG)
     and launches VLC immediately, skipping the tree
+  - Results render in a **horizontal-scrolling row** (no vertical page growth); the first 5 are shown,
+    with a **"Load More ▸"** button that reveals 5 more at a time and scrolls the row to them
+  - YTS results show the movie **poster/cover** (loaded from the YTS image CDN) to help identify titles
 - **Subtitles**: matching external subtitle files (`.srt/.ass/.sub/.vtt`…) for the chosen video are
   auto-downloaded and passed to VLC via `--sub-file`, so they load automatically. Embedded subs in
   MKV already play without action.

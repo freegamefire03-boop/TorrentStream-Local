@@ -180,6 +180,10 @@ srcYtsBtn.addEventListener('click', () => { currentSource = 'YTS'; updateSourceU
 srcTpbBtn.addEventListener('click', () => { currentSource = 'TPB'; updateSourceUI() })
 updateSourceUI()
 
+const PAGE_SIZE = 5
+let allSearchResults = []
+let visibleResults = PAGE_SIZE
+
 async function runSearch() {
   const q = searchInput.value.trim()
   if (!q) { searchStatus.textContent = 'Type a search term.'; searchStatus.className = 'search-status error'; return }
@@ -188,19 +192,40 @@ async function runSearch() {
   searchStatus.className = 'search-status'
   searchResults.hidden = true
   searchResults.innerHTML = ''
+  visibleResults = PAGE_SIZE
   try {
     const opts = { minSeeders: 5, providers: [currentSource], preferQuality: '1080p' }
-    const results = await window.api.searchTorrents(q, opts)
-    if (!results.length) {
+    allSearchResults = await window.api.searchTorrents(q, opts)
+    if (!allSearchResults.length) {
       searchStatus.textContent = 'No results.'
       return
     }
-    searchStatus.textContent = `${results.length} result(s) from ${currentSource}`
-    results.forEach((r) => searchResults.appendChild(renderResult(r)))
+    searchStatus.textContent = `${allSearchResults.length} result(s) from ${currentSource}`
+    renderVisibleResults()
     searchResults.hidden = false
   } catch (err) {
     searchStatus.textContent = err.message || String(err)
     searchStatus.className = 'search-status error'
+  }
+}
+
+// Render only the first `visibleResults` cards into a horizontal row, then append a
+// "Load More" button if there are more results to reveal.
+function renderVisibleResults() {
+  searchResults.innerHTML = ''
+  const slice = allSearchResults.slice(0, visibleResults)
+  slice.forEach((r) => searchResults.appendChild(renderResult(r)))
+  if (visibleResults < allSearchResults.length) {
+    const more = document.createElement('button')
+    more.className = 'load-more-btn'
+    more.textContent = 'Load More ▸'
+    more.addEventListener('click', () => {
+      visibleResults += PAGE_SIZE
+      renderVisibleResults()
+      // Keep the newly revealed cards in view by scrolling to the end of the row.
+      searchResults.scrollLeft = searchResults.scrollWidth
+    })
+    searchResults.appendChild(more)
   }
 }
 

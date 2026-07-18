@@ -2,6 +2,15 @@
 
 All notable changes to this project are logged here, newest first.
 
+## 2026-07-18 (UI)
+- Fixed: YTS movie posters/covers were blocked by the Content-Security-Policy (`default-src 'self'`);
+  added `img-src 'self' https:` to renderer.html so external cover images now load.
+- Changed: search results now render in a horizontal-scrolling row instead of a vertical grid, so the
+  page layout stays clean regardless of result count.
+- Added: results show 5 at a time with a "Load More ▸" button that reveals 5 more per click and scrolls
+  the row to the newly loaded cards (no vertical page growth).
+- Fixed: result-card width is fixed (220px, no shrink) so cards keep a consistent poster shape.
+
 ## 2026-07-18
 - Added: 🌐 1337x via Brave — header button launches 1337x.to in an isolated Brave profile with a
   sideloaded MV3 extension (`brave-extension/`) that intercepts magnet clicks and streams them into the app.
