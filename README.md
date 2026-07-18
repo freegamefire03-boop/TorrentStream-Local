@@ -35,6 +35,22 @@ MVP — core flow implemented and boots cleanly.
 - VLC path auto-detected on Windows, or set manually via Settings
 - On quit in Disk mode, a dialog asks whether to **keep** or **delete** the downloaded torrent folder;
   in Memory mode it just closes (server/torrent torn down)
+- 🌐 **1337x via Brave** (header button "🌐 1337x (Brave)"): opens 1337x.to in an **isolated Brave
+  profile** with a sideloaded browser extension. The extension intercepts any magnet-link click and
+  forwards it to the app's local server, which auto-picks the best video and launches VLC. This avoids
+  Cloudflare, which blocks in-app/embedded browsing of 1337x.
+  - The app also registers itself as the `magnet:` protocol handler **only while it is running**
+    (unregistered on quit), so clicking a magnet in any browser loads it into the app.
+
+## How 1337x (Brave) works
+1. Click **🌐 1337x (Brave)** → the app launches Brave in a private `brave-profile/` with the
+   `brave-extension/` loaded, then opens `https://1337x.to`.
+2. Browse and click any **magnet** link on 1337x (or any site).
+3. The extension (capture-phase click handler) cancels the default navigation and `fetch()`es
+   `http://127.0.0.1:43161/magnet?uri=<magnet>` on the app's local server.
+4. The app resolves metadata, picks the largest non-junk video, starts the HTTP stream, and launches VLC.
+5. Closing the app unregisters the `magnet:` handler and kills the Brave process; `brave-profile/`
+   subfolders are wiped on close (extension config is preserved).
 
 ## Tech Stack
 - Electron (v33)
@@ -50,9 +66,14 @@ npm start
 Requires VLC installed (or use the "VLC" button in the app to point at `vlc.exe`).
 
 ## Project Structure
-- `main.js` — Electron main process: IPC handlers, webtorrent client, HTTP stream server, VLC launch
+- `main.js` — Electron main process: IPC handlers, webtorrent client, HTTP stream server, VLC launch,
+  localhost magnet server (`:43161`), Brave launch, `magnet:` protocol registration
 - `preload.js` — contextBridge exposing a safe `window.api` to the renderer
-- `renderer.html` / `renderer.js` / `renderer.css` — UI: input bar, file tree, status
+- `renderer.html` / `renderer.js` / `renderer.css` — UI: input bar, file tree, status, search, settings
+- `brave-extension/` — MV3 extension sideloaded into the isolated Brave profile; intercepts magnet clicks
+  and forwards them to the app's local server
+- `brave-profile/` — isolated Brave user-data dir (gitignored; wiped on app close, extension config kept)
+- `providers.js` — YTS + TPB search providers
 - `package.json` — deps + `electron-builder` config for packaging
 
 ## Known Issues / TODO

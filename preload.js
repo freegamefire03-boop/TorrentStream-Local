@@ -16,5 +16,6 @@ contextBridge.exposeInMainWorld('api', {
   setSaveMode: (mode) => ipcRenderer.invoke('set-save-mode', mode),
   onMagnetReceived: (cb) => ipcRenderer.on('magnet-received', (e, uri) => cb(uri)),
   onMagnetLoaded: (cb) => ipcRenderer.on('magnet-loaded', (e, result) => cb(result)),
-  onMagnetError: (cb) => ipcRenderer.on('magnet-error', (e, msg) => cb(msg))
+  onMagnetError: (cb) => ipcRenderer.on('magnet-error', (e, msg) => cb(msg)),
+  launchBrave1337x: () => ipcRenderer.invoke('launch-brave-1337x')
 })

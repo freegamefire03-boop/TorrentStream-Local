@@ -2,6 +2,20 @@
 
 All notable changes to this project are logged here, newest first.
 
+## 2026-07-18
+- Added: 🌐 1337x via Brave — header button launches 1337x.to in an isolated Brave profile with a
+  sideloaded MV3 extension (`brave-extension/`) that intercepts magnet clicks and streams them into the app.
+- Added: localhost magnet server on `127.0.0.1:43161` — receives `?uri=<magnet>` from the Brave extension,
+  resolves metadata, auto-picks the best video, streams it, and launches VLC with subtitles.
+- Added: app registers as the `magnet:` protocol handler only while running (unregistered on quit), so
+  clicking a magnet in any browser loads it into the app; system default is restored on close.
+- Fixed: auto-play reported "No video file found in torrent" for single-file torrents (e.g. a lone MP4).
+  Root cause: a duplicate `pickBestVideo` (index-returning) shadowed the file-object version, and the
+  magnet-server check `if (!best) throw` wrongly fired on index 0 (`!0 === true`). Removed the duplicate.
+- Fixed: `handleIncomingMagnet` (OS-level magnet handler) now uses the selected file's `.index` after the
+  `pickBestVideo` dedupe, so it auto-streams + plays instead of silently no-op'ing.
+- Removed: duplicate index-returning `pickBestVideo` in `main.js` (the file-object version is the single source).
+
 ## 2026-07-17
 - Added: Initial MVP — Electron app with magnet/.torrent loading via webtorrent
 - Added: File tree UI with video filtering and click-to-stream

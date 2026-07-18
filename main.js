@@ -16,6 +16,111 @@ async function getWebTorrent() {
 
 const VIDEO_EXTS = ['mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'wmv', 'mpg', 'mpeg', 'm4v']
 
+// ---- Isolated Brave profile for 1337x browsing (extension-intercepted magnets) ----
+const BRAVE_EXE = 'C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe'
+const BRAVE_PROFILE_DIR = path.join(__dirname, 'brave-profile')
+const BRAVE_EXT_DIR = path.join(__dirname, 'brave-extension')
+const BRAVE_HOME_URL = 'https://1337x.to'
+
+let braveProcess = null
+
+function launchBrave1337x() {
+  // Use the isolated profile + sideload our extension. The extension intercepts magnet
+  // clicks and forwards them to the app's local server (see background.js).
+  const args = [
+    `--user-data-dir=${BRAVE_PROFILE_DIR}`,
+    `--load-extension=${BRAVE_EXT_DIR}`,
+    '--no-first-run',
+    '--no-default-browser-check',
+    BRAVE_HOME_URL
+  ]
+  try {
+    braveProcess = spawn(BRAVE_EXE, args, { detached: false, stdio: 'ignore' })
+    braveProcess.on('exit', () => { braveProcess = null })
+    braveProcess.on('error', (err) => {
+      if (mainWindow) mainWindow.webContents.send('brave-error', err.message)
+      braveProcess = null
+    })
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e.message }
+  }
+}
+
+function killBrave() {
+  if (braveProcess) {
+    try { braveProcess.kill() } catch (e) {}
+    braveProcess = null
+  }
+}
+
+// ---- Magnet server for Brave extension (localhost:43161/magnet?uri=...) ----
+const MAGNET_PORT = 43161
+const JUNK = /sample|rarbg|trailer|advert|intro|preview/i
+
+function pickBestVideo(files) {
+  // files = array of { name, path, length, video, ... }
+  const vids = files.filter((f) => f.video && !JUNK.test(f.name))
+  if (!vids.length) vids.push(...files.filter((f) => f.video))
+  vids.sort((a, b) => b.length - a.length)
+  return vids[0] || null
+}
+
+let magnetServer = null
+
+function startMagnetServer() {
+  if (magnetServer) return
+  magnetServer = http.createServer(async (req, res) => {
+    if (!req.url.startsWith('/magnet')) {
+      res.writeHead(404)
+      res.end('Not found')
+      return
+    }
+    const u = new URL(req.url, 'http://x')
+    const uri = u.searchParams.get('uri')
+    if (!uri || !/^magnet:\?/i.test(uri)) {
+      res.writeHead(400)
+      res.end('Invalid magnet')
+      return
+    }
+    res.writeHead(200)
+    res.end('ok')
+    try {
+      // Use existing loadMagnetUri which adds torrent and resolves when metadata ready
+      const result = await loadMagnetUri(uri)
+      // result = { name, files, saveMode }
+      const best = pickBestVideo(result.files)
+      if (!best) throw new Error('No video file found in torrent.')
+      // Find the file index in currentTorrent.files
+      const fileIndex = currentTorrent.files.findIndex((f) => f.path === best.path)
+      if (fileIndex === -1) throw new Error('Video file not found in torrent.')
+      // Stream it (selects file + matching subs, starts HTTP server)
+      const { url, subtitlePaths } = await streamFile(fileIndex)
+      // Launch VLC with subtitles
+      await launchVlc(url, subtitlePaths)
+      if (mainWindow) mainWindow.webContents.send('magnet-loaded', { name: best.name })
+    } catch (err) {
+      console.error('Magnet auto-play failed:', err.message)
+      if (mainWindow) mainWindow.webContents.send('magnet-error', err.message)
+    }
+  })
+  magnetServer.listen(MAGNET_PORT, '127.0.0.1', () => {
+    console.log('Magnet server listening on http://127.0.0.1:' + MAGNET_PORT)
+  })
+  magnetServer.on('error', (e) => {
+    if (e.code === 'EADDRINUSE') {
+      console.warn('Magnet server port ' + MAGNET_PORT + ' in use; extension will fail to deliver.')
+    }
+  })
+}
+
+function stopMagnetServer() {
+  if (magnetServer) {
+    magnetServer.close()
+    magnetServer = null
+  }
+}
+
 let mainWindow = null
 let client = null
 let currentTorrent = null
@@ -121,6 +226,11 @@ function handleIncomingMagnet(uri) {
   loadMagnetUri(uri)
     .then((result) => {
       if (mainWindow) mainWindow.webContents.send('magnet-loaded', { name: result.name, files: result.files })
+      // Auto-pick best video and stream it
+      const best = pickBestVideo(result.files)
+      if (best) {
+        return streamFile(best.index).then(({ url, subtitles }) => launchVlc(url, subtitles))
+      }
     })
     .catch((err) => {
       if (mainWindow) mainWindow.webContents.send('magnet-error', err.message)
@@ -128,6 +238,13 @@ function handleIncomingMagnet(uri) {
 }
 
 ipcMain.handle('load-magnet', async (event, magnetUri) => loadMagnetUri(magnetUri))
+
+ipcMain.handle('launch-brave-1337x', async () => {
+  if (!fs.existsSync(BRAVE_EXE)) {
+    return { ok: false, error: 'Brave not found at ' + BRAVE_EXE }
+  }
+  return launchBrave1337x()
+})
 
 ipcMain.handle('load-torrent-file', async (event, filePath) => {
   if (!fs.existsSync(filePath)) {
@@ -248,7 +365,8 @@ async function downloadSubs(subs) {
   return paths
 }
 
-ipcMain.handle('stream-file', async (event, fileIndex) => {
+// ---- Reusable stream + VLC launch (used by IPC and magnet auto-play) ----
+async function streamFile(fileIndex) {
   if (!currentTorrent) throw new Error('No torrent loaded.')
   if (!Number.isInteger(fileIndex) || fileIndex < 0 || fileIndex >= currentTorrent.files.length) {
     throw new Error('File index out of range.')
@@ -312,7 +430,6 @@ ipcMain.handle('stream-file', async (event, fileIndex) => {
       let clientGone = false
       res.on('close', () => { clientGone = true })
       stream.on('error', (err) => {
-        // Expected when the client (VLC) disconnects/seek-closes the connection.
         if (clientGone || /closed|aborted|prematurely/i.test(err.message)) return
         console.error('stream error', err)
         if (!res.headersSent) res.writeHead(500)
@@ -333,9 +450,9 @@ ipcMain.handle('stream-file', async (event, fileIndex) => {
       resolve({ url, subtitles: subtitlePaths })
     })
   })
-})
+}
 
-ipcMain.handle('launch-vlc', async (event, url, subtitlePaths) => {
+async function launchVlc(url, subtitlePaths) {
   const vlcPath = findVlc()
   if (!vlcPath) {
     throw new Error('VLC not found. Install VLC or set its path in settings.')
@@ -348,7 +465,11 @@ ipcMain.handle('launch-vlc', async (event, url, subtitlePaths) => {
   proc.on('error', (err) => { throw new Error('Failed to launch VLC: ' + err.message) })
   proc.unref()
   return { ok: true }
-})
+}
+
+ipcMain.handle('stream-file', async (event, fileIndex) => streamFile(fileIndex))
+
+ipcMain.handle('launch-vlc', async (event, url, subtitlePaths) => launchVlc(url, subtitlePaths))
 
 // ---- Settings ----
 const settingsPath = path.join(app.getPath('userData'), 'settings.json')
@@ -487,6 +608,7 @@ app.whenReady().then(() => {
   loadSettings()
   createWindow()
   registerMagnetHandler()
+  startMagnetServer()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
@@ -499,4 +621,7 @@ app.on('window-all-closed', () => {
 })
 
 // Remove the magnet handler on quit so the system default is restored.
-app.on('will-quit', () => { unregisterMagnetHandler() })
+app.on('will-quit', () => {
+  unregisterMagnetHandler()
+  killBrave()
+})

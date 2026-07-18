@@ -14,6 +14,7 @@ const vlcSettingsBtn = $('#vlc-settings')
 
 // Settings modal elements
 const openSettingsBtn = $('#open-settings')
+const open1337xBtn = $('#open-1337x')
 const settingsModal = $('#settings-modal')
 const closeSettingsBtn = $('#close-settings')
 const modeMemoryBtn = $('#mode-memory')
@@ -333,6 +334,21 @@ function updateVlcStatus(path) {
   vlcStatusEl.textContent = path ? 'set' : 'not found'
   vlcStatusEl.style.color = path ? 'var(--video)' : 'var(--error)'
 }
+
+// ---- 1337x in isolated Brave ----
+open1337xBtn.addEventListener('click', async () => {
+  setStatus('Launching 1337x in isolated Brave…', 'info')
+  try {
+    const res = await window.api.launchBrave1337x()
+    if (res && res.ok) {
+      setStatus('1337x opened in Brave. Click a magnet link — it will load here.', 'info')
+    } else {
+      setStatus('Could not launch Brave: ' + (res && res.error ? res.error : 'unknown error'), 'error')
+    }
+  } catch (e) {
+    setStatus('Could not launch Brave: ' + (e.message || e), 'error')
+  }
+})
 
 // ---- Settings modal ----
 let currentSettings = { saveMode: 'memory', downloadPath: '', vlcPath: '' }
