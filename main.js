@@ -258,8 +258,8 @@ ipcMain.handle('load-torrent-file', async (event, filePath) => {
 function addTorrent(arg) {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
-      reject(new Error('Timed out fetching torrent metadata. No peers found (the tracker may be unreachable).'))
-    }, 60000)
+      reject(new Error('Fetching metadata timed out. Try again later or use YTS.'))
+    }, 10000)
     currentTorrent = client.add(arg, torrentAddOptions(), (torrent) => {
       clearTimeout(timeout)
       if (settings.saveMode === 'disk') {

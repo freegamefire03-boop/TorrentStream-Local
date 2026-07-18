@@ -115,21 +115,29 @@ const tpb = {
     const minSeeders = opts.minSeeders ?? 0
     const results = []
     // WebTorrent finds peers best via WebSocket (wss://) trackers; UDP trackers have
-    // limited support in WebTorrent, so we append public WS trackers to every magnet.
+    // limited support in WebTorrent, so we append multiple public trackers to every magnet.
     const WS_TRACKERS = [
       'wss://tracker.openwebtorrent.com',
       'wss://tracker.btorrent.xyz',
       'wss://tracker.webtorrent.dev'
     ]
+    const HTTP_TRACKERS = [
+      'http://tracker.opentrackr.org:1337/announce',
+      'http://tracker.openbittorrent.com:80/announce',
+      'http://tracker.coppersurfer.tk:6969/announce'
+    ]
     for (const t of json) {
       const seeders = parseInt(t.seeders, 10) || 0
       if (seeders < minSeeders) continue
       const hash = t.info_hash ? t.info_hash.toLowerCase() : ''
+      // Skip invalid hashes (must be 40-char hex string)
+      if (!hash || !/^[0-9a-f]{40}$/.test(hash)) continue
       const dn = encodeURIComponent(t.name || 'torrent')
       let magnet = null
       if (hash) {
         magnet = `magnet:?xt=urn:btih:${hash}&dn=${dn}`
         for (const tr of WS_TRACKERS) magnet += `&tr=${encodeURIComponent(tr)}`
+        for (const tr of HTTP_TRACKERS) magnet += `&tr=${encodeURIComponent(tr)}`
       }
       results.push({
         title: t.name,

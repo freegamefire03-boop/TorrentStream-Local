@@ -45,7 +45,7 @@ let loadToken = 0
 
 async function loadTorrent(loader) {
   const myToken = ++loadToken
-  setStatus('Fetching metadata… please wait (this may take a while)')
+  setStatus('Connecting to peers (10s timeout)… please wait')
   loadMagnetBtn.disabled = true
   pickFileBtn.disabled = true
   // Clear the previous torrent's tree immediately so old video indices can't be clicked.
