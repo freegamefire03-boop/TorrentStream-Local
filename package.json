@@ -24,10 +24,14 @@
       "preload.js",
       "renderer.html",
       "renderer.js",
-      "renderer.css"
+      "renderer.css",
+      "providers.js",
+      "brave-extension/**/*",
+      "icon.ico"
     ],
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "icon.ico"
     }
   },
   "config": {

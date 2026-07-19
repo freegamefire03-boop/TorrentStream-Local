@@ -9,8 +9,6 @@ const fileSection = $('#file-section')
 const torrentNameEl = $('#torrent-name')
 const fileTreeEl = $('#file-tree')
 const nowPlayingEl = $('#now-playing')
-const vlcStatusEl = $('#vlc-status')
-const vlcSettingsBtn = $('#vlc-settings')
 
 // Settings modal elements
 const openSettingsBtn = $('#open-settings')
@@ -24,8 +22,6 @@ const downloadPathEl = $('#download-path')
 const pickDownloadBtn = $('#pick-download')
 const vlcPathEl = $('#vlc-path')
 const pickVlcBtn = $('#pick-vlc')
-
-let currentFiles = []
 
 function setStatus(msg, kind = 'info') {
   statusEl.textContent = msg || ''
@@ -55,7 +51,6 @@ async function loadTorrent(loader) {
   try {
     const result = await loader()
     if (myToken !== loadToken) return null // a newer load superseded this one
-    currentFiles = result.files
     renderTree(result.name, result.files)
     setStatus(`Loaded ${result.files.length} file(s). Click a highlighted video to stream.`)
     return result
@@ -346,20 +341,6 @@ dropZone.addEventListener('drop', (e) => {
   }
 })
 
-// VLC settings (legacy header button removed; kept for compatibility)
-if (vlcSettingsBtn) {
-  vlcSettingsBtn.addEventListener('click', async () => {
-    const p = await window.api.promptVlcPath()
-    updateVlcStatus(p)
-  })
-}
-
-function updateVlcStatus(path) {
-  if (!vlcStatusEl) return
-  vlcStatusEl.textContent = path ? 'set' : 'not found'
-  vlcStatusEl.style.color = path ? 'var(--video)' : 'var(--error)'
-}
-
 // ---- 1337x in isolated Brave ----
 open1337xBtn.addEventListener('click', async () => {
   setStatus('Launching 1337x in isolated Brave…', 'info')
@@ -427,7 +408,6 @@ window.api.onMagnetReceived((uri) => {
   nowPlayingEl.hidden = true
 })
 window.api.onMagnetLoaded((result) => {
-  currentFiles = result.files
   renderTree(result.name, result.files)
   setStatus(`Loaded ${result.files.length} file(s). Click a highlighted video to stream.`)
 })

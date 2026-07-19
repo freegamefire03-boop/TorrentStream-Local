@@ -27,10 +27,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         return r.json()
       })
       .then(function (data) {
-        if (data) latestStatus = data
+        if (data) { latestStatus = data } else { latestStatus = null }
         sendResponse({ status: data })
       })
       .catch(function () {
+        latestStatus = null
         sendResponse({ status: null })
       })
     return true

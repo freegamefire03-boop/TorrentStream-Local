@@ -108,18 +108,22 @@
 
   // Poll by asking the background worker for cached status.
   // Each sendMessage keeps the service worker alive.
+  var pollRetries = 0
+  var MAX_POLL_RETRIES = 60 // ~30s before giving up
   function pollStatus() {
     if (!active) return
     chrome.runtime.sendMessage({ type: 'getStatus' }, function (resp) {
       if (!active) return
-      if (chrome.runtime.lastError) {
-        pollTimer = setTimeout(pollStatus, 1000)
+      if (chrome.runtime.lastError || !resp || !resp.status) {
+        pollRetries++
+        if (pollRetries >= MAX_POLL_RETRIES) {
+          removeOverlay()
+          return
+        }
+        pollTimer = setTimeout(pollStatus, chrome.runtime.lastError ? 1000 : 500)
         return
       }
-      if (!resp || !resp.status) {
-        pollTimer = setTimeout(pollStatus, 500)
-        return
-      }
+      pollRetries = 0
       updateOverlay(resp.status)
       if (resp.status.stage === 'done' || resp.status.stage === 'error') {
         if (pollTimer) { clearTimeout(pollTimer); pollTimer = null }
@@ -143,6 +147,7 @@
     if (doneTimer) { clearTimeout(doneTimer); doneTimer = null }
     if (overlay) { removeOverlay() }
     active = true
+    pollRetries = 0
 
     createOverlay()
     updateOverlay({ stage: 'connecting', pct: 0, peers: 0, hint: null })

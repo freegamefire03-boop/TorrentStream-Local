@@ -115,7 +115,7 @@ function startMagnetServer() {
       const { url, subtitlePaths } = await streamFile(fileIndex)
       // Launch VLC with subtitles
       await launchVlc(url, subtitlePaths)
-      if (mainWindow) mainWindow.webContents.send('magnet-loaded', { name: best.name })
+      if (mainWindow) mainWindow.webContents.send('magnet-loaded', { name: result.name, files: result.files })
     } catch (err) {
       console.error('Magnet auto-play failed:', err.message)
       if (mainWindow) mainWindow.webContents.send('magnet-error', err.message)
@@ -150,6 +150,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1000,
     height: 700,
+    icon: path.join(__dirname, 'icon.ico'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -166,6 +167,10 @@ function createWindow() {
 
 // Full teardown of torrent + server. `removeData` deletes the on-disk folder.
 function cleanup(removeData) {
+  if (currentPrefetchStream) {
+    try { currentPrefetchStream.destroy() } catch (e) {}
+    currentPrefetchStream = null
+  }
   if (streamServer) {
     try { streamServer.close() } catch (e) {}
     streamServer = null
@@ -389,6 +394,8 @@ async function downloadSubs(subs) {
 let currentStreamFile = null
 let currentStreamFileSize = 0
 let previousStreamRange = null
+let currentPrefetchStream = null
+let playT0 = 0
 let firstVlcRequestLogged = false
 
 // Mark head pieces as critical, no tail preload (tail is fetched on-demand reactively)
@@ -463,6 +470,10 @@ async function streamFile(fileIndex) {
   file.select()
   subs.forEach((s) => s.select())
 
+  // Performance measurement: time from streamFile to first VLC request
+  playT0 = performance.now()
+  firstVlcRequestLogged = false
+
   // Mark head pieces as critical (no tail preload - handled reactively)
   markHeadPriority(file, currentTorrent)
 
@@ -472,8 +483,9 @@ async function streamFile(fileIndex) {
 
   // Pre-fetch first 2MB of the file to start buffering immediately
   const prefetchEnd = Math.min(2 * 1024 * 1024 - 1, file.length - 1)
-  const prefetchStream = file.createReadStream({ start: 0, end: prefetchEnd })
-  prefetchStream.resume()
+  if (currentPrefetchStream) { try { currentPrefetchStream.destroy() } catch (e) {} }
+  currentPrefetchStream = file.createReadStream({ start: 0, end: prefetchEnd })
+  currentPrefetchStream.resume()
 
   // Progress stage tracking
   let stage = 'connecting'
@@ -530,32 +542,32 @@ async function streamFile(fileIndex) {
         'Accept-Ranges': 'bytes',
         'Content-Length': end - start + 1
       }
-if (statusCode === 206) {
-         // Log and emit 'done' on first VLC Range request
-         if (!firstVlcRequestLogged) {
-           firstVlcRequestLogged = true
-           console.log('[perf] first VLC Range request')
-           const doneData = { stage: 'done', pct: 100, peers: currentTorrent.numPeers, hint: null }
-           magnetProgress = doneData
-           if (mainWindow) mainWindow.webContents.send('stream-progress', doneData)
-         }
-         headers['Content-Range'] = `bytes ${start}-${end}/${currentSize}`
-         // Reactive priority bump for requested range (bounded to avoid tail flood)
-         if (currentTorrent.pieceLength) {
-           const reqStartPiece = Math.floor(start / currentTorrent.pieceLength)
-           const reqEndPiece = Math.floor(end / currentTorrent.pieceLength)
-           const priorityEnd = Math.min(reqEndPiece, reqStartPiece + 10)
-           try {
-             currentTorrent.critical(reqStartPiece, priorityEnd)
-           } catch (e) {
-             console.error('Reactive priority failed:', e.message)
-           }
-         }
-         // Cancel stale pre-fetch stream on large seek
-         if (previousStreamRange && Math.abs(start - previousStreamRange.start) > 5 * 1024 * 1024) {
-           try { previousStreamRange.stream.destroy() } catch (e) {}
-         }
-       }
+      if (statusCode === 206) {
+        // Log and emit 'done' on first VLC Range request
+        if (!firstVlcRequestLogged && playT0) {
+          firstVlcRequestLogged = true
+          console.log('[perf] first VLC Range request ' + (performance.now() - playT0).toFixed(0) + 'ms after streamFile')
+          const doneData = { stage: 'done', pct: 100, peers: currentTorrent.numPeers, hint: null }
+          magnetProgress = doneData
+          if (mainWindow) mainWindow.webContents.send('stream-progress', doneData)
+        }
+        headers['Content-Range'] = `bytes ${start}-${end}/${currentSize}`
+        // Reactive priority bump for requested range (bounded to avoid tail flood)
+        if (currentTorrent.pieceLength) {
+          const reqStartPiece = Math.floor(start / currentTorrent.pieceLength)
+          const reqEndPiece = Math.floor(end / currentTorrent.pieceLength)
+          const priorityEnd = Math.min(reqEndPiece, reqStartPiece + 10)
+          try {
+            currentTorrent.critical(reqStartPiece, priorityEnd)
+          } catch (e) {
+            console.error('Reactive priority failed:', e.message)
+          }
+        }
+        // Cancel stale pre-fetch stream on large seek
+        if (previousStreamRange && Math.abs(start - previousStreamRange.start) > 5 * 1024 * 1024) {
+          try { previousStreamRange.stream.destroy() } catch (e) {}
+        }
+      }
 
         // Add keep-alive headers
         headers['Connection'] = 'keep-alive'
@@ -564,23 +576,23 @@ if (statusCode === 206) {
         res.writeHead(statusCode, headers)
 
         const stream = currentFile.createReadStream({ start, end })
-       previousStreamRange = { start, end, stream }
-       let clientGone = false
-       res.on('close', () => { clientGone = true })
-      stream.on('error', (err) => {
-        if (clientGone || /closed|aborted|prematurely/i.test(err.message)) return
-        console.error('stream error', err)
-        if (!res.headersSent) res.writeHead(500)
-        res.end()
-      })
-      stream.pipe(res)
+        previousStreamRange = { start, end, stream }
+        let clientGone = false
+        res.on('close', () => { clientGone = true })
+        stream.on('error', (err) => {
+          if (clientGone || /closed|aborted|prematurely/i.test(err.message)) return
+          console.error('stream error', err)
+          if (!res.headersSent) res.writeHead(500)
+          res.end()
+        })
+        stream.pipe(res)
     })
 
     streamServer.on('error', (err) => {
       console.error('Stream server error:', err)
     })
 
-serverReady = new Promise((resolve, reject) => {
+    serverReady = new Promise((resolve, reject) => {
       streamServer.once('error', reject)
       streamServer.listen(0, '127.0.0.1', () => {
         streamPort = streamServer.address().port

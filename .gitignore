@@ -9,3 +9,5 @@ node_modules/
 *secret*
 bv.log
 brave-profile/
+start.vbs
+archive/
