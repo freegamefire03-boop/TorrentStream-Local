@@ -542,15 +542,14 @@ async function streamFile(fileIndex) {
         'Accept-Ranges': 'bytes',
         'Content-Length': end - start + 1
       }
+      if (!firstVlcRequestLogged && playT0 && (statusCode === 200 || statusCode === 206)) {
+        firstVlcRequestLogged = true
+        console.log('[perf] first VLC request ' + (performance.now() - playT0).toFixed(0) + 'ms after streamFile')
+        const doneData = { stage: 'done', pct: 100, peers: currentTorrent.numPeers, hint: null }
+        magnetProgress = doneData
+        if (mainWindow) mainWindow.webContents.send('stream-progress', doneData)
+      }
       if (statusCode === 206) {
-        // Log and emit 'done' on first VLC Range request
-        if (!firstVlcRequestLogged && playT0) {
-          firstVlcRequestLogged = true
-          console.log('[perf] first VLC Range request ' + (performance.now() - playT0).toFixed(0) + 'ms after streamFile')
-          const doneData = { stage: 'done', pct: 100, peers: currentTorrent.numPeers, hint: null }
-          magnetProgress = doneData
-          if (mainWindow) mainWindow.webContents.send('stream-progress', doneData)
-        }
         headers['Content-Range'] = `bytes ${start}-${end}/${currentSize}`
         // Reactive priority bump for requested range (bounded to avoid tail flood)
         if (currentTorrent.pieceLength) {
