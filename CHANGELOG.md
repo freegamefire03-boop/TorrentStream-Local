@@ -3,6 +3,8 @@
 All notable changes to this project are logged here, newest first.
 
 ## 2026-07-19
+- Fixed: overlay in browser sticks at "Starting player..." on second+ magnet — `firstVlcRequestLogged` was
+  never reset between magnets, so `stage: 'done'` stopped being written after the first session
 - Fixed: content script no longer fetches localhost directly, eliminating Brave permission prompts
 - Changed: /status polling moved from content script to background service worker (has permanent
   `<all_urls>` host permission); worker broadcasts results to content script via `chrome.runtime.onMessage`

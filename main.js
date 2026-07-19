@@ -99,8 +99,9 @@ function startMagnetServer() {
     }
     res.writeHead(200)
     res.end('ok')
-    // Reset progress for new magnet
+    // Reset state for new magnet
     magnetProgress = { stage: 'connecting', pct: 0, peers: 0, hint: null }
+    firstVlcRequestLogged = false
     try {
       // Use existing loadMagnetUri which adds torrent and resolves when metadata ready
       const result = await loadMagnetUri(uri)
