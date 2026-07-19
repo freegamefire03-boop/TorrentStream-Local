@@ -3,6 +3,9 @@
 All notable changes to this project are logged here, newest first.
 
 ## 2026-07-19
+- Fixed: overlay stuck at "Connecting to swarm..." indefinitely — Manifest V3 service worker can suspend
+  between setTimeout poll cycles; now content script drives polling via chrome.runtime.sendMessage (keeps
+  worker alive), worker responds with cached /status data instead of unreliable autonomous polling
 - Fixed: overlay in browser sticks at "Starting player..." on second+ magnet — `firstVlcRequestLogged` was
   never reset between magnets, so `stage: 'done'` stopped being written after the first session
 - Fixed: content script no longer fetches localhost directly, eliminating Brave permission prompts

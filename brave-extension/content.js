@@ -1,5 +1,6 @@
 (function () {
   let overlay = null
+  let pollTimer = null
   let doneTimer = null
   let active = false
 
@@ -99,22 +100,35 @@
 
   function removeOverlay() {
     active = false
+    if (pollTimer) { clearTimeout(pollTimer); pollTimer = null }
     if (doneTimer) { clearTimeout(doneTimer); doneTimer = null }
     if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay)
     overlay = null
   }
 
-  // Listen for status updates from the background worker
-  chrome.runtime.onMessage.addListener(function (msg) {
-    if (!msg || msg.type !== 'status' || !msg.status) return
+  // Poll by asking the background worker for cached status.
+  // Each sendMessage keeps the service worker alive.
+  function pollStatus() {
     if (!active) return
-
-    updateOverlay(msg.status)
-
-    if (msg.status.stage === 'done' || msg.status.stage === 'error') {
-      doneTimer = setTimeout(removeOverlay, 1200)
-    }
-  })
+    chrome.runtime.sendMessage({ type: 'getStatus' }, function (resp) {
+      if (!active) return
+      if (chrome.runtime.lastError) {
+        pollTimer = setTimeout(pollStatus, 1000)
+        return
+      }
+      if (!resp || !resp.status) {
+        pollTimer = setTimeout(pollStatus, 500)
+        return
+      }
+      updateOverlay(resp.status)
+      if (resp.status.stage === 'done' || resp.status.stage === 'error') {
+        if (pollTimer) { clearTimeout(pollTimer); pollTimer = null }
+        doneTimer = setTimeout(removeOverlay, 1200)
+        return
+      }
+      pollTimer = setTimeout(pollStatus, 500)
+    })
+  }
 
   // Magnet click interception
   document.addEventListener('click', function (e) {
@@ -125,7 +139,7 @@
     e.preventDefault()
     e.stopPropagation()
 
-    // Clear any stale state
+    if (pollTimer) { clearTimeout(pollTimer); pollTimer = null }
     if (doneTimer) { clearTimeout(doneTimer); doneTimer = null }
     if (overlay) { removeOverlay() }
     active = true
@@ -133,10 +147,8 @@
     createOverlay()
     updateOverlay({ stage: 'connecting', pct: 0, peers: 0, hint: null })
 
-    // Tell the background worker to start polling /status
-    chrome.runtime.sendMessage({ type: 'startMagnetPoll' }).catch(function () {})
+    pollStatus()
 
-    // Forward the magnet URI to the background worker
     chrome.runtime.sendMessage({ type: 'magnet', uri: uri }, function (resp) {
       if (chrome.runtime.lastError) {
         console.error('[ts-ext] sendMessage failed:', chrome.runtime.lastError.message)
