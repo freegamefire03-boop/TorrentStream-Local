@@ -67,10 +67,24 @@ function pickBestVideo(files) {
 }
 
 let magnetServer = null
+// Shared progress state for extension polling
+let magnetProgress = null
 
 function startMagnetServer() {
   if (magnetServer) return
   magnetServer = http.createServer(async (req, res) => {
+    if (req.url.startsWith('/status')) {
+      res.setHeader('Access-Control-Allow-Origin', '*')
+      res.setHeader('Content-Type', 'application/json')
+      if (magnetProgress) {
+        res.writeHead(200)
+        res.end(JSON.stringify(magnetProgress))
+      } else {
+        res.writeHead(204)
+        res.end()
+      }
+      return
+    }
     if (!req.url.startsWith('/magnet')) {
       res.writeHead(404)
       res.end('Not found')
@@ -85,6 +99,8 @@ function startMagnetServer() {
     }
     res.writeHead(200)
     res.end('ok')
+    // Reset progress for new magnet
+    magnetProgress = { stage: 'connecting', pct: 0, peers: 0, hint: null }
     try {
       // Use existing loadMagnetUri which adds torrent and resolves when metadata ready
       const result = await loadMagnetUri(uri)
@@ -464,8 +480,10 @@ async function streamFile(fileIndex) {
   const emitStage = (next) => {
     stage = next
     stageStart = Date.now()
+    const data = { stage, pct: 0, peers: currentTorrent.numPeers }
+    magnetProgress = data
     if (mainWindow) {
-      mainWindow.webContents.send('stream-progress', { stage, pct: 0, peers: currentTorrent.numPeers })
+      mainWindow.webContents.send('stream-progress', data)
     }
   }
 
@@ -516,7 +534,9 @@ if (statusCode === 206) {
          if (!firstVlcRequestLogged) {
            firstVlcRequestLogged = true
            console.log('[perf] first VLC Range request')
-           if (mainWindow) mainWindow.webContents.send('stream-progress', { stage: 'done' })
+           const doneData = { stage: 'done', pct: 100, peers: currentTorrent.numPeers, hint: null }
+           magnetProgress = doneData
+           if (mainWindow) mainWindow.webContents.send('stream-progress', doneData)
          }
          headers['Content-Range'] = `bytes ${start}-${end}/${currentSize}`
          // Reactive priority bump for requested range (bounded to avoid tail flood)
@@ -582,14 +602,16 @@ serverReady = new Promise((resolve, reject) => {
      bytes: 10 * 1024 * 1024,
      timeoutMs: 4000,
      onProgress: ({ pct, peers, downloadSpeed }) => {
+       const secondsInStage = (Date.now() - stageStart) / 1000
+       const data = {
+         stage,
+         pct,
+         peers,
+         hint: healthHint({ peers, downloadSpeed, secondsInStage })
+       }
+       magnetProgress = data
        if (mainWindow) {
-         const secondsInStage = (Date.now() - stageStart) / 1000
-         mainWindow.webContents.send('stream-progress', {
-           stage,
-           pct,
-           peers,
-           hint: healthHint({ peers, downloadSpeed, secondsInStage })
-         })
+         mainWindow.webContents.send('stream-progress', data)
        }
      }
    })
