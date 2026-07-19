@@ -3,6 +3,9 @@
 All notable changes to this project are logged here, newest first.
 
 ## 2026-07-19
+- Fixed: content script no longer fetches localhost directly, eliminating Brave permission prompts
+- Changed: /status polling moved from content script to background service worker (has permanent
+  `<all_urls>` host permission); worker broadcasts results to content script via `chrome.runtime.onMessage`
 - Added: browser extension progressive overlay shows connecting / downloading / starting-player / done stages via polled `/status` endpoint
 - Fixed: progress overlay never auto-dismissed — polling kept restarting 1.2s removal timers; now stops polling immediately on `done`/`error`
 

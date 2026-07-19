@@ -1,9 +1,6 @@
 (function () {
-  const APP_PORT = 43161
-
-  // ---- Progress overlay DOM ----
   let overlay = null
-  let pollTimer = null
+  let doneTimer = null
   let active = false
 
   function createOverlay() {
@@ -102,34 +99,24 @@
 
   function removeOverlay() {
     active = false
-    if (pollTimer) { clearTimeout(pollTimer); pollTimer = null }
+    if (doneTimer) { clearTimeout(doneTimer); doneTimer = null }
     if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay)
     overlay = null
   }
 
-  function pollStatus() {
+  // Listen for status updates from the background worker
+  chrome.runtime.onMessage.addListener(function (msg) {
+    if (!msg || msg.type !== 'status' || !msg.status) return
     if (!active) return
-    fetch('http://127.0.0.1:' + APP_PORT + '/status', { cache: 'no-store' })
-      .then(function (r) {
-        if (r.status === 204) { pollTimer = setTimeout(pollStatus, 500); return }
-        return r.json()
-      })
-      .then(function (data) {
-        if (!active || !data) return
-        updateOverlay(data)
-        if (data.stage === 'done' || data.stage === 'error') {
-          if (pollTimer) { clearTimeout(pollTimer); pollTimer = null }
-          setTimeout(removeOverlay, 1200)
-          return
-        }
-        pollTimer = setTimeout(pollStatus, 500)
-      })
-      .catch(function () {
-        if (active) pollTimer = setTimeout(pollStatus, 1000)
-      })
-  }
 
-  // ---- Magnet click interception ----
+    updateOverlay(msg.status)
+
+    if (msg.status.stage === 'done' || msg.status.stage === 'error') {
+      doneTimer = setTimeout(removeOverlay, 1200)
+    }
+  })
+
+  // Magnet click interception
   document.addEventListener('click', function (e) {
     var a = e.target && e.target.closest ? e.target.closest('a[href^="magnet:"]') : null
     if (!a) return
@@ -137,21 +124,23 @@
     if (!uri || !/^magnet:\?/i.test(uri)) return
     e.preventDefault()
     e.stopPropagation()
-    e.stopImmediatePropagation()
 
+    // Clear any stale state
+    if (doneTimer) { clearTimeout(doneTimer); doneTimer = null }
+    if (overlay) { removeOverlay() }
     active = true
+
     createOverlay()
     updateOverlay({ stage: 'connecting', pct: 0, peers: 0, hint: null })
-    pollStatus()
 
-    try {
-      chrome.runtime.sendMessage({ type: 'magnet', uri: uri }, function (resp) {
-        if (chrome.runtime.lastError) {
-          console.error('[ts-ext] sendMessage failed:', chrome.runtime.lastError.message)
-        }
-      })
-    } catch (err) {
-      console.error('[ts-ext] sendMessage threw:', err)
-    }
+    // Tell the background worker to start polling /status
+    chrome.runtime.sendMessage({ type: 'startMagnetPoll' }).catch(function () {})
+
+    // Forward the magnet URI to the background worker
+    chrome.runtime.sendMessage({ type: 'magnet', uri: uri }, function (resp) {
+      if (chrome.runtime.lastError) {
+        console.error('[ts-ext] sendMessage failed:', chrome.runtime.lastError.message)
+      }
+    })
   }, true)
 })()
