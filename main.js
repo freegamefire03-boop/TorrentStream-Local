@@ -371,6 +371,64 @@ async function downloadSubs(subs) {
 // Store current stream file reference for server reuse
 let currentStreamFile = null
 let currentStreamFileSize = 0
+let previousStreamRange = null
+let firstVlcRequestLogged = false
+
+// Mark head pieces as critical, no tail preload (tail is fetched on-demand reactively)
+function markHeadPriority(file, torrent) {
+  if (!torrent || !torrent.pieceLength) return
+  const pieceLength = torrent.pieceLength
+  const startPiece = Math.floor((file.offset || 0) / pieceLength)
+  const endPiece = Math.min(
+    torrent.pieces.length - 1,
+    Math.ceil(((file.offset || 0) + file.length) / pieceLength) - 1
+  )
+  const headCount = Math.min(40, Math.max(1, endPiece - startPiece + 1))
+  const headEnd = startPiece + headCount - 1
+  try {
+    if (headEnd >= startPiece) torrent.critical(startPiece, headEnd)
+    console.log(`[perf] markHeadPriority: pieces ${startPiece}-${headEnd} (${headCount} total)`)
+  } catch (e) {
+    console.error('markHeadPriority failed:', e.message)
+  }
+}
+
+// Waits for the head range to be verified in the chunk store, or times out and proceeds anyway.
+async function waitForHeadReady(file, torrent, { bytes = 10 * 1024 * 1024, timeoutMs = 4000, onProgress } = {}) {
+  const target = Math.min(bytes, file.length)
+
+  return new Promise((resolve) => {
+    let done = false
+    const finish = (reason) => {
+      if (done) return
+      done = true
+      torrent.removeListener('verified', onVerified)
+      console.log(`[perf] head buffer ${reason}: ${file.downloaded}/${target} bytes`)
+      resolve()
+    }
+
+    const check = () => {
+      if (done) return
+      const pct = Math.round((file.downloaded / target) * 100)
+      onProgress && onProgress({ pct, peers: torrent.numPeers, downloadSpeed: torrent.downloadSpeed })
+      if (file.downloaded >= target) finish('ready')
+    }
+    const onVerified = () => check()
+
+    check() // in case it's already satisfied (warm swarm / re-play)
+    if (done) return
+
+    torrent.on('verified', onVerified)
+    setTimeout(() => finish('timeout'), timeoutMs)
+  })
+}
+
+// Health hint based on peer/download state
+function healthHint({ peers, downloadSpeed, secondsInStage }) {
+  if (peers === 0 && secondsInStage > 5) return 'no peers found — this torrent may be dead'
+  if (downloadSpeed < 10 * 1024 && secondsInStage > 5) return 'very slow — peers may be weak, consider another source'
+  return null
+}
 
 async function streamFile(fileIndex) {
   if (!currentTorrent) throw new Error('No torrent loaded.')
@@ -380,7 +438,6 @@ async function streamFile(fileIndex) {
   const file = currentTorrent.files[fileIndex]
   if (!file) throw new Error('File index out of range.')
 
-  // Deselect everything else to save bandwidth, keep only the selected file + its subs.
   const subs = findMatchingSubs(file)
   const keep = new Set([fileIndex, ...subs.map((s) => currentTorrent.files.indexOf(s))])
   currentTorrent.files.forEach((f, i) => {
@@ -388,6 +445,9 @@ async function streamFile(fileIndex) {
   })
   file.select()
   subs.forEach((s) => s.select())
+
+  // Mark head pieces as critical (no tail preload - handled reactively)
+  markHeadPriority(file, currentTorrent)
 
   // Update current stream file reference for server reuse
   currentStreamFile = file
@@ -397,6 +457,19 @@ async function streamFile(fileIndex) {
   const prefetchEnd = Math.min(2 * 1024 * 1024 - 1, file.length - 1)
   const prefetchStream = file.createReadStream({ start: 0, end: prefetchEnd })
   prefetchStream.resume()
+
+  // Progress stage tracking
+  let stage = 'connecting'
+  let stageStart = Date.now()
+  const emitStage = (next) => {
+    stage = next
+    stageStart = Date.now()
+    if (mainWindow) {
+      mainWindow.webContents.send('stream-progress', { stage, pct: 0, peers: currentTorrent.numPeers })
+    }
+  }
+
+  emitStage('connecting')
 
   // Create server on first call, reuse thereafter
   if (!streamServer) {
@@ -438,14 +511,41 @@ async function streamFile(fileIndex) {
         'Accept-Ranges': 'bytes',
         'Content-Length': end - start + 1
       }
-      if (statusCode === 206) {
-        headers['Content-Range'] = `bytes ${start}-${end}/${currentSize}`
-      }
-      res.writeHead(statusCode, headers)
+if (statusCode === 206) {
+         // Log and emit 'done' on first VLC Range request
+         if (!firstVlcRequestLogged) {
+           firstVlcRequestLogged = true
+           console.log('[perf] first VLC Range request')
+           if (mainWindow) mainWindow.webContents.send('stream-progress', { stage: 'done' })
+         }
+         headers['Content-Range'] = `bytes ${start}-${end}/${currentSize}`
+         // Reactive priority bump for requested range (bounded to avoid tail flood)
+         if (currentTorrent.pieceLength) {
+           const reqStartPiece = Math.floor(start / currentTorrent.pieceLength)
+           const reqEndPiece = Math.floor(end / currentTorrent.pieceLength)
+           const priorityEnd = Math.min(reqEndPiece, reqStartPiece + 10)
+           try {
+             currentTorrent.critical(reqStartPiece, priorityEnd)
+           } catch (e) {
+             console.error('Reactive priority failed:', e.message)
+           }
+         }
+         // Cancel stale pre-fetch stream on large seek
+         if (previousStreamRange && Math.abs(start - previousStreamRange.start) > 5 * 1024 * 1024) {
+           try { previousStreamRange.stream.destroy() } catch (e) {}
+         }
+       }
 
-      const stream = currentFile.createReadStream({ start, end })
-      let clientGone = false
-      res.on('close', () => { clientGone = true })
+        // Add keep-alive headers
+        headers['Connection'] = 'keep-alive'
+        headers['Keep-Alive'] = 'timeout=30, max=1000'
+
+        res.writeHead(statusCode, headers)
+
+        const stream = currentFile.createReadStream({ start, end })
+       previousStreamRange = { start, end, stream }
+       let clientGone = false
+       res.on('close', () => { clientGone = true })
       stream.on('error', (err) => {
         if (clientGone || /closed|aborted|prematurely/i.test(err.message)) return
         console.error('stream error', err)
@@ -459,7 +559,7 @@ async function streamFile(fileIndex) {
       console.error('Stream server error:', err)
     })
 
-    serverReady = new Promise((resolve, reject) => {
+serverReady = new Promise((resolve, reject) => {
       streamServer.once('error', reject)
       streamServer.listen(0, '127.0.0.1', () => {
         streamPort = streamServer.address().port
@@ -469,17 +569,40 @@ async function streamFile(fileIndex) {
     })
   }
 
-  // Guarantee streamPort is set (server is listening) before handing the URL to VLC.
-  await serverReady
+  // Transition to 'downloading' when first peer wire connects
+  currentTorrent.once('wire', () => {
+    if (stage === 'connecting') emitStage('downloading')
+  })
 
-  const url = `http://127.0.0.1:${streamPort}/stream`
+  // Guarantee streamPort is set (server is listening) before waiting for head.
+   await serverReady
 
-  // Start subtitle download in background (don't wait for it)
-  let subtitlePaths = []
-  if (subs.length) {
-    try { subtitlePaths = await downloadSubs(subs) } catch (e) {}
-  }
-  return { url, subtitles: subtitlePaths }
+   // Wait for head buffer to be verified, with timeout fallback and progress updates
+   await waitForHeadReady(file, currentTorrent, {
+     bytes: 10 * 1024 * 1024,
+     timeoutMs: 4000,
+     onProgress: ({ pct, peers, downloadSpeed }) => {
+       if (mainWindow) {
+         const secondsInStage = (Date.now() - stageStart) / 1000
+         mainWindow.webContents.send('stream-progress', {
+           stage,
+           pct,
+           peers,
+           hint: healthHint({ peers, downloadSpeed, secondsInStage })
+         })
+       }
+     }
+   })
+
+   emitStage('starting-player')
+   const url = `http://127.0.0.1:${streamPort}/stream`
+
+   // Start subtitle download in background (don't wait for it)
+   let subtitlePaths = []
+   if (subs.length) {
+     try { subtitlePaths = await downloadSubs(subs) } catch (e) {}
+   }
+   return { url, subtitles: subtitlePaths }
 }
 
 async function launchVlc(url, subtitlePaths) {
@@ -487,7 +610,7 @@ async function launchVlc(url, subtitlePaths) {
   if (!vlcPath) {
     throw new Error('VLC not found. Install VLC or set its path in settings.')
   }
-  const args = ['--network-caching=300', url]
+  const args = ['--network-caching=1000', url]
   if (Array.isArray(subtitlePaths)) {
     for (const sp of subtitlePaths) args.push('--sub-file', sp)
   }

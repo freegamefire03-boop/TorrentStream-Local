@@ -435,3 +435,25 @@ window.api.onMagnetError((msg) => {
   setStatus(msg || 'Failed to load magnet.', 'error')
 })
 
+// ---- Stream progress dialog ----
+const STAGE_TEXT = {
+  connecting: 'Connecting to swarm\u2026',
+  downloading: 'Downloading first few seconds\u2026',
+  'starting-player': 'Starting player\u2026'
+}
+const progressDialog = document.getElementById('stream-progress-dialog')
+const progressStage = document.getElementById('progress-stage-text')
+const progressPct = document.getElementById('progress-pct')
+const progressHint = document.getElementById('progress-hint')
+
+window.api.onStreamProgress(({ stage, pct, hint }) => {
+  if (stage === 'done') {
+    progressDialog.hidden = true
+    return
+  }
+  progressDialog.hidden = false
+  progressStage.textContent = STAGE_TEXT[stage] || stage
+  progressPct.textContent = stage === 'downloading' ? (pct + '%') : ''
+  progressHint.textContent = hint || ''
+})
+

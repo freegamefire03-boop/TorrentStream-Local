@@ -27,9 +27,15 @@ MVP — core flow implemented and boots cleanly.
 - Load torrents from a magnet link or a local `.torrent` file (with drag & drop)
 - Read metadata only (no full download) and list files with sizes
 - File tree respects subfolders; video files (mp4/mkv/avi/mov/webm/…) are highlighted
-- Click a video → a local HTTP server streams it (sequential piece priority) at `127.0.0.1:PORT`
-- **Seek support**: the stream server honors HTTP `Range` requests (`206 Partial Content`), so VLC's
-  forward/backward scrubbing works instead of restarting from the beginning
+- Click a video → a local HTTP server streams it at `127.0.0.1:PORT` with WebTorrent critical-priority
+  head (40 pieces) and reactive range-triggered priority bump for fast startup
+- **Seek support**: the stream server honors HTTP `Range` requests (`206 Partial Content`) and kills
+  stale prefetch streams on large seeks, so VLC's forward/backward scrubbing works smoothly
+- **Fast first frame**: before VLC connects, app waits (up to 4s) for the first ~10 MB to be verified in the
+  chunk store — eliminates head-tail queue contention stalls. On timeout, it launches anyway (worst case = original behavior)
+- **VLC tuned**: `--network-caching=1000` (improved from 300) with explicit HTTP keep-alive
+- **Startup progress dialog**: a small overlay shows "Connecting to swarm..." / "Downloading x%" /
+  "Starting player..." with health hints (no peers/dead torrent) so you know what's happening
 - **Save mode toggle** (⚙ Settings):
   - *Memory* — pieces cached in RAM, nothing written to disk; closing re-downloads next time
   - *Disk* — torrent saved to a chosen folder in its own subfolder; re-loading resumes from disk

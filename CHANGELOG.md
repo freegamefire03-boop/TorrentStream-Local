@@ -2,7 +2,21 @@
 
 All notable changes to this project are logged here, newest first.
 
-## 2026-07-18 (Streaming & TPB)
+## 2026-07-19
+- Changed: `markCriticalEnds` replaced with `markHeadPriority` — first 40 pieces only (no tail preload);
+  tail is handled reactively on VLC's Range request.
+- Changed: head budget bumped from 20 to 40 pieces (~10 MB) for modern 1080p/4K bitrates.
+- Added: `waitForHeadReady()` gate — waits up to 4s for first ~10 MB verified in the chunk store before
+  launching VLC, eliminating the head-tail queue-contention stall. Resolves via timeout if swarm is slow.
+- Added: reactive priority bump in HTTP handler — requested byte ranges are promoted to critical
+  (±10 pieces bounded) so VLC's tail/moov fetch and seeks jump the queue.
+- Added: stale prefetch stream cancellation on large seeks (>5 MB) to avoid competing with the new range.
+- Changed: HTTP headers now include explicit `Connection: keep-alive` / `Keep-Alive: timeout=30, max=1000`.
+- Changed: VLC `--network-caching=300` bumped to `--network-caching=1000` for smoother startup.
+- Added: four-stage progress dialog (connecting / downloading % / starting player / done) with health
+  hints for dead or stalled swarms, driven by the wait-for-head-ready gate over IPC.
+- Fixed: HTTP handler was missing `res.writeHead(statusCode, headers)` — headers object was built
+  but never applied to the response (regression from prior edit). Restored.
 - Added: TPB magnets now append public HTTP trackers (opentrackr, openbittorrent, coppersurfer) in
   addition to the WebSocket trackers, so more TPB torrents find peers.
 - Added: TPB results whose `info_hash` is not a valid 40-char hex string are skipped, avoiding dead magnets.
