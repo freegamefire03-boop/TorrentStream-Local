@@ -118,6 +118,7 @@
         if (!active || !data) return
         updateOverlay(data)
         if (data.stage === 'done' || data.stage === 'error') {
+          if (pollTimer) { clearTimeout(pollTimer); pollTimer = null }
           setTimeout(removeOverlay, 1200)
           return
         }

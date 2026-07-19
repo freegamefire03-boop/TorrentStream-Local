@@ -3,6 +3,10 @@
 All notable changes to this project are logged here, newest first.
 
 ## 2026-07-19
+- Added: browser extension progressive overlay shows connecting / downloading / starting-player / done stages via polled `/status` endpoint
+- Fixed: progress overlay never auto-dismissed — polling kept restarting 1.2s removal timers; now stops polling immediately on `done`/`error`
+
+## Earlier (2026-07-19)
 - Changed: `markCriticalEnds` replaced with `markHeadPriority` — first 40 pieces only (no tail preload);
   tail is handled reactively on VLC's Range request.
 - Changed: head budget from 20 to 40 pieces (~10 MB) for modern 1080p/4K bitrates.
