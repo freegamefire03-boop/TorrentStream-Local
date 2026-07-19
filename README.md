@@ -84,22 +84,9 @@ Requires VLC installed (or use the "VLC" button in the app to point at `vlc.exe`
 - `brave-profile/` — isolated Brave user-data dir (gitignored; wiped on app close, extension config kept)
 - `providers.js` — YTS + TPB search providers
 - `package.json` — deps + `electron-builder` config for packaging
-- `tests/` — full test suite:
-  - `tests/unit/` — 106 pure-fn unit tests (node:test, zero deps)
-  - `tests/integration/` — provider search tests with mocked HTTP
-  - `tests/e2e/` — 6 Playwright E2E tests (magnet format, TPB trackers, interception)
-
-## Running Tests
-```bash
-npm test           # unit + integration + E2E (112 tests)
-npm run test:unit  # unit + integration only (106 tests)
-npm run test:e2e   # Playwright E2E only (6 tests)
-```
 
 ## Known Issues / TODO
 - Packaging to a double-click `.exe` is configured but untested (run `npm run dist`)
 - macOS/Linux VLC detection paths not yet added (Windows-only candidate list today)
 - In Disk mode, webtorrent still fetches missing pieces on demand; already-downloaded pieces play instantly
 - Search currently uses YTS (movies only). More providers can be added in `providers.js` behind approval.
-- E2E live-scraping of 1337x blocked by Cloudflare in headless Playwright (works in real Brave). Provider integration tests use mocked HTTP instead.
-- Extension overlay E2E requires real Brave — Playwright's Chromium doesn't activate extension content scripts the same way.

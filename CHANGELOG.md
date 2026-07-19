@@ -2,13 +2,6 @@
 
 All notable changes to this project are logged here, newest first.
 
-## 2026-07-19 (test infrastructure)
-- Added: comprehensive test map (`TEST_MAP.md`) covering 4 layers: unit, integration, extension, E2E
-- Added: 106 unit + integration tests (node:test, zero deps) covering all pure functions in main.js, renderer.js, providers.js
-- Added: 6 E2E tests via Playwright validating magnet format, TPB tracker URLs, and simulation scenarios
-- Added: `npm test`, `npm run test:unit`, `npm run test:e2e` scripts
-- Added: `playwright` dev dependency
-
 ## 2026-07-19 (audit fixes)
 - Fixed: critical renderer crash when Brave extension auto-plays a magnet — `magnet-loaded` IPC now sends `{name, files}` instead of just `{name}`
 - Fixed: extension polling loops forever if app is gone — added 60-retry limit (~30s) so overlay auto-dismisses
