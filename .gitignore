@@ -11,3 +11,5 @@ bv.log
 brave-profile/
 start.vbs
 archive/
+.test-browser-profile/
+tests/e2e/*.png

@@ -2,6 +2,28 @@
 
 All notable changes to this project are logged here, newest first.
 
+## 2026-07-19 (test infrastructure)
+- Added: comprehensive test map (`TEST_MAP.md`) covering 4 layers: unit, integration, extension, E2E
+- Added: 106 unit + integration tests (node:test, zero deps) covering all pure functions in main.js, renderer.js, providers.js
+- Added: 6 E2E tests via Playwright validating magnet format, TPB tracker URLs, and simulation scenarios
+- Added: `npm test`, `npm run test:unit`, `npm run test:e2e` scripts
+- Added: `playwright` dev dependency
+
+## 2026-07-19 (audit fixes)
+- Fixed: critical renderer crash when Brave extension auto-plays a magnet — `magnet-loaded` IPC now sends `{name, files}` instead of just `{name}`
+- Fixed: extension polling loops forever if app is gone — added 60-retry limit (~30s) so overlay auto-dismisses
+- Fixed: extension background worker caches stale `/status` across magnets — `latestStatus` now cleared on fetch failures
+- Changed: restore `playT0` timing measurement for first-VLC-request perf log
+- Removed: dead VLC legacy compatibility block and orphaned element refs in renderer
+- Removed: dead `currentFiles` variable (written but never read)
+- Removed: stale documentation snapshots (`codebase.md`, `ANALYSIS_REPORT.md`, post-selection-flow files) moved to `archive/`
+- Removed: root log files (`cdp.log`, `test_start.log`, `test.log`)
+- Added: missing files to electron-builder config (`providers.js`, `brave-extension/`, `icon.ico`)
+- Added: window icon to BrowserWindow
+- Added: prefetchStream lifecycle management (stored at module scope, destroyed on cleanup)
+- Changed: re-indented stream server handler for consistent code style
+- Changed: gitignore now covers `start.vbs` and `archive/`
+
 ## 2026-07-19
 - Fixed: overlay stuck at "Connecting to swarm..." indefinitely — Manifest V3 service worker can suspend
   between setTimeout poll cycles; now content script drives polling via chrome.runtime.sendMessage (keeps
